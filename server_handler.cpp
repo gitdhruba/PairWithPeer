@@ -10,6 +10,8 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <thread>
+#include <cstdlib>
+#include <time.h>
 
 /***************headers end********************/
 
@@ -20,8 +22,8 @@ using namespace std;
 #define PACKETSIZE 8        //data will be sent/recieved in a series of packets of size PACKETSIZE
 
 //declare some global variables
-vector<pair<string, int>> Clients;    //stores ip address and port numbers for each connected clients
-mutex mtx;                            //for handeling critical sections
+vector<pair<string, int>> ClientsList;    //stores ip address and port numbers for each connected clients
+mutex mtx;                                //for handeling critical sections
 
 
 
@@ -43,29 +45,111 @@ string getip(){
 
 /*
     function --> Register_Client(int Sock_fd)
-    return: true on success
-            false on failure
+    return: void
     description:
          param-1: Sock_fd = new client socket file-descriptor
       - fetches clients ip and port and add them to Clients
 */
-bool Register_Client(int Sock_fd){
-    /*yet to be written*/
+void Register_Client(int Sock_fd){
+    int datasize = 0;
+    char Client_IP[32]; int Client_Port;
+    memset(Client_IP, 0, sizeof(Client_IP));
+
+    //recieve Client's IP
+    recv(Sock_fd, &datasize, sizeof(datasize), 0);
+    recv(Sock_fd, Client_IP, datasize, 0);
+
+    //recieve Client's Port no
+    recv(Sock_fd, &Client_Port, sizeof(Client_Port), 0);
+
+    //Register Client and return it an id
+    //WARNING: it is a critical section . mutex should be locked before doing anything
+    mtx.lock();
+    ClientsList.push_back({(string)Client_IP, Client_Port});
+    unsigned long int ClientID = ClientsList.size() - 1;
+    send(Sock_fd, &ClientID, sizeof(ClientID), 0);
+    cout << "Client connected: ID: " << ClientID << " IP: " << Client_IP << " Port: " << Client_Port << endl;
+    mtx.unlock();                                     //critical section over , unlock mutex
 }
 
 
 /*
     function --> Handle_Download_Request(int Sock_fd)
-    return: void
+    return: true on success
+            false on failure
     description:
          param-1: Sock_fd = new client socket file-descriptor
       - fetches the file name that the client wants to download, then forwards a request to each
         connected client if it has that file or not. if any client responds to the request, then 
         it sends that clients ip and port no to the first client , so that the client can connect 
-        to that and download the file. 
+        to that and download the file, else it searches for that file in itself . if it is available
+        then sends its ip and port to the client .
 */
-void Handle_Download_Request(int Sock_fd){
-    /*yet to be written*/
+bool Handle_Download_Request(int Sock_fd){
+    int datasize = 0;
+    int Temp_Sockfd;
+    struct sockaddr_in Client_Address;
+    bool Response;
+    memset(&Client_Address, 0, sizeof(Client_Address));
+    
+    //recieve client's id and filename
+    unsigned long int ClientID;
+    char Filename[1000];
+    memset(Filename, 0, sizeof(Filename));
+    recv(Sock_fd, &ClientID, sizeof(ClientID), 0);
+    recv(Sock_fd, &datasize, sizeof(datasize), 0);
+    recv(Sock_fd, Filename, datasize, 0);
+
+    //create temporary socket for searching 
+    if((Temp_Sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        return false;
+    }
+
+    //initiate a random starting point for searching
+    unsigned long int StartingIndex;
+    srand(time(NULL));
+    StartingIndex = rand();
+    StartingIndex = StartingIndex % ClientsList.size();
+
+    //start searching
+    for(unsigned long int Offset = 0; Offset < ClientsList.size(); Offset++){
+        unsigned long int Index = (StartingIndex + Offset) % ClientsList.size();
+        if(Index != ClientID){                                                  //don't search in same client
+            //fill-up Client_Address for connecting
+            Client_Address.sin_family = AF_INET;
+            Client_Address.sin_addr.s_addr = inet_addr(ClientsList[Index].first.c_str());
+            Client_Address.sin_port = htons(ClientsList[Index].second);
+
+            //connect
+            if(connect(Temp_Sockfd, (struct sockaddr *)&Client_Address, sizeof(Client_Address)) < 0){
+                  continue;
+            }
+
+            //send filename
+            datasize = strlen(Filename);
+            send(Temp_Sockfd, &datasize, sizeof(datasize), 0);
+            send(Temp_Sockfd, Filename, datasize, 0);
+
+            //get response
+            recv(Temp_Sockfd, &Response, sizeof(Response), 0);
+            if(Response){                                               //file is present
+                //forward response to the client
+                send(Sock_fd, &Response, sizeof(Response), 0);
+
+                //send ip and port no of the seeding client
+                datasize = ClientsList[Index].first.length();
+                send(Sock_fd, &datasize, sizeof(datasize), 0);
+                send(Sock_fd, ClientsList[Index].first.c_str(), datasize, 0);
+                send(Sock_fd, &ClientsList[Index].second, sizeof(ClientsList[Index].second), 0);
+
+                //all done. no need to check further
+                close(Temp_Sockfd);
+                return true;
+            }
+        }
+    }
+
+    /* rest part yet to be written */
 }
 
 
@@ -80,13 +164,14 @@ void Handle_Download_Request(int Sock_fd){
 void Handle_Client_Request(int Sock_fd, int RequestID){
     switch(RequestID){
         case 1:             //new connection request
-              if(!(Register_Client(Sock_fd))){
-                 cout << "cannot register client\n";
-              }
+              Register_Client(Sock_fd);
               break;
 
         case 2:             //request to download a file
-              Handle_Download_Request(Sock_fd);
+              if(!Handle_Download_Request(Sock_fd)){
+                 bool status = false;
+                 send(Sock_fd, &status, sizeof(status), 0);
+              }
               break;
 
         default:
