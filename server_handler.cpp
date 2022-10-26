@@ -94,7 +94,7 @@ bool Handle_Download_Request(int Sock_fd){
     
     //recieve client's id and filename
     unsigned long int ClientID;
-    char Filename[1000];
+    char Filename[100];
     memset(Filename, 0, sizeof(Filename));
     recv(Sock_fd, &ClientID, sizeof(ClientID), 0);
     recv(Sock_fd, &datasize, sizeof(datasize), 0);
@@ -102,9 +102,11 @@ bool Handle_Download_Request(int Sock_fd){
 
     //create temporary socket for searching 
     if((Temp_Sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        cout << "false\n";
         return false;
     }
 
+    cout << "here\n";
     //initiate a random starting point for searching
     unsigned long int StartingIndex;
     srand(time(NULL));
@@ -114,17 +116,22 @@ bool Handle_Download_Request(int Sock_fd){
     //start searching
     for(unsigned long int Offset = 0; Offset < ClientsList.size(); Offset++){
         unsigned long int Index = (StartingIndex + Offset) % ClientsList.size();
+        cout << Index << endl;
         if(Index != ClientID){                                                  //don't search in same client
             //fill-up Client_Address for connecting
             Client_Address.sin_family = AF_INET;
             Client_Address.sin_addr.s_addr = inet_addr(ClientsList[Index].first.c_str());
             Client_Address.sin_port = htons(ClientsList[Index].second);
-
+       
+            cout << "checking: " << ClientsList[Index].first << ":" << ClientsList[Index].second << endl;
             //connect
             if(connect(Temp_Sockfd, (struct sockaddr *)&Client_Address, sizeof(Client_Address)) < 0){
                   continue;
             }
-
+            
+            //send request
+            int request = 0;
+            send(Temp_Sockfd, &request, sizeof(request), 0);
             //send filename
             datasize = strlen(Filename);
             send(Temp_Sockfd, &datasize, sizeof(datasize), 0);
@@ -132,6 +139,7 @@ bool Handle_Download_Request(int Sock_fd){
 
             //get response
             recv(Temp_Sockfd, &Response, sizeof(Response), 0);
+            cout << "response: " << Response << endl << endl;
             if(Response){                                               //file is present
                 //forward response to the client
                 send(Sock_fd, &Response, sizeof(Response), 0);
@@ -148,8 +156,8 @@ bool Handle_Download_Request(int Sock_fd){
             }
         }
     }
-
-    /* rest part yet to be written */
+    
+    return false;
 }
 
 
@@ -177,6 +185,10 @@ void Handle_Client_Request(int Sock_fd, int RequestID){
         default:
               cout << "Invalid request\n";
     }
+
+    //close socket
+    close(Sock_fd);
+    return;
 }
 
 
@@ -212,7 +224,7 @@ void RunServer(){
         cout << "cannot listen\n";
         exit(1);
     }
-
+    cout << "Listening to " << ipaddr << ": " << PORT << endl;
     //accept requests from clients and make separate threads to handle them
     while(true){
         if((New_Client_Sockfd = accept(Server_Sockfd, (struct sockaddr *)&New_Client_Address, &addr_size)) < 0){
@@ -222,7 +234,7 @@ void RunServer(){
 
         int RequestID;
         recv(New_Client_Sockfd, &RequestID, sizeof(RequestID), 0);
-
+        cout << RequestID << endl;
         //create thread to handle request
         thread thr(Handle_Client_Request, New_Client_Sockfd, RequestID);
         thr.detach();
