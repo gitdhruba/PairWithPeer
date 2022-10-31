@@ -23,7 +23,7 @@ using namespace std;
 #define PACKETSIZE 8              //data will be sent/recieved in a series of packets of size PACKETSIZE
 
 //declare some global variables
-unsigned long int MyID;                         //MyID holdes Client's ID after connecting to the network
+string ClientUsername;                         //MyID holdes Client's ID after connecting to the network
 struct sockaddr_in ServerAddress;               //ServerAddress holds Server's socket address
 
 
@@ -66,12 +66,15 @@ void searchfile(int Sock_fd){
     struct dirent *d;
     struct stat dst;
     DIR *dir;
-    string path = "./";
+    string path = "./shared/public/";
     dir = opendir(path.c_str());
-    
     bool res = false;
     if(dir != NULL){
         for(d = readdir(dir); d != NULL; d = readdir(dir)){
+            stat((path+(string)d->d_name).c_str(), &dst);
+            if(S_ISDIR(dst.st_mode)){
+                continue;
+            }
             if(!strcmp(d->d_name, filename)){
                 res = true;
                 break;
@@ -92,7 +95,7 @@ void searchfile(int Sock_fd){
         - this function is called when a client requests for a file to download. it shares the requested
           file in a series of packets of size PACKETSIZE.
 */
-void sharefile(int Sock_fd){
+void sharefile_public(int Sock_fd){
 
     //recieve the filename
     int datasize ;
@@ -104,18 +107,19 @@ void sharefile(int Sock_fd){
 
     //open and prepare the requested file
     fstream fin;
-    fin.open(filename, ios::out | ios::in);
+    string pathtofile = "./shared/public/" + (string)filename;
+    fin.open(pathtofile, ios::out | ios::in);
     
     //calculate file size
     fin.seekg(0, ios::beg);
-    int begin = fin.tellg();
+    unsigned long long int begin = fin.tellg();
     fin.seekg(0, ios::end);
-    int end = fin.tellg();
-    int filesize = end - begin;
+    unsigned long long int end = fin.tellg();
+    unsigned long long int filesize = end - begin;
     send(Sock_fd, &filesize, sizeof(filesize), 0);          //send the filesize to the client
     
     //start sending the file
-    int cnt = filesize/PACKETSIZE, i;
+    unsigned long long int cnt = filesize/PACKETSIZE, i;
     char tmp[10] = {0};
     for(i=0; i<cnt; i++){
         fin.seekg((i*PACKETSIZE), ios::beg);
@@ -134,6 +138,109 @@ void sharefile(int Sock_fd){
     fin.close();
 }
 
+void sharefile_private(string username, string filename){
+    int sock_fd, datasize, req;
+    char clientip[32]; int clientport;
+    struct sockaddr_in clientaddress;
+    memset(clientip, 0, sizeof(clientip));
+    memset(&clientaddress, 0, sizeof(clientaddress));
+
+    //gather info about user
+    cout << "gathering info........." << endl;
+    if((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        cout << "an unexpected error occured. try again later" << endl;
+        return;
+    }
+
+    if(connect(sock_fd, (struct sockaddr *)&ServerAddress, sizeof(ServerAddress)) < 0){
+        cout << "cannot connect to the server" << endl;
+        return;
+    }
+
+    //send request to the server
+    req = 4;
+    send(sock_fd, &req, sizeof(req), 0);
+    datasize = username.length();
+    send(sock_fd, &datasize, sizeof(datasize), 0);
+    send(sock_fd, username.c_str(), datasize, 0);
+    bool res;
+    recv(sock_fd, &res, sizeof(res), 0);
+    if(!res){
+        cout << "no client found with this username" << endl;
+        close(sock_fd);
+        return;
+    }
+
+    //fetch client's ip and port no
+    recv(sock_fd, &datasize, sizeof(datasize), 0);
+    recv(sock_fd, clientip, datasize, 0);
+    recv(sock_fd, &clientport, sizeof(clientport), 0);
+    close(sock_fd);
+
+    cout << "connecting......." << endl;
+    if((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        cout << "an unexpected error occured. try again later" << endl;
+        return;
+    }
+    clientaddress.sin_family = AF_INET;
+    clientaddress.sin_addr.s_addr = inet_addr(clientip);
+    clientaddress.sin_port = htons(clientport);                   
+    if(connect(sock_fd, (struct sockaddr *)&clientaddress, sizeof(clientaddress)) < 0){
+        cout << "cannot connect to the client" << endl;
+        return;
+    }
+
+    cout << "sending request........" << endl;
+    req = 2;
+    send(sock_fd, &req, sizeof(req), 0);
+    datasize = username.length();
+    send(sock_fd, &datasize, sizeof(datasize), 0);
+    send(sock_fd, username.c_str(), datasize, 0);
+    datasize = filename.length();
+    send(sock_fd, &datasize, sizeof(datasize), 0);
+    send(sock_fd, filename.c_str(), datasize, 0);
+    recv(sock_fd, &res, sizeof(res), 0);
+    if(!res){
+        cout << "declined by " << username << endl;
+        close(sock_fd);
+        return;
+    }
+
+    //start sharing
+    fstream fin;
+    string pathtofile = "./shared/private/" + filename;
+    fin.open(pathtofile, ios::out | ios::in);
+    
+    //calculate file size
+    fin.seekg(0, ios::beg);
+    unsigned long long int begin = fin.tellg();
+    fin.seekg(0, ios::end);
+    unsigned long long int end = fin.tellg();
+    unsigned long long int filesize = end - begin;
+    send(sock_fd, &filesize, sizeof(filesize), 0);          //send the filesize to the client
+    
+    //start sending the file
+    unsigned long long int cnt = filesize/PACKETSIZE, i;
+    char tmp[10] = {0};
+    for(i=0; i<cnt; i++){
+        fin.seekg((i*PACKETSIZE), ios::beg);
+        fin.read(tmp, PACKETSIZE);
+        //cout << tmp << endl;
+        send(sock_fd, tmp, PACKETSIZE, 0);
+        memset(tmp, '\0', sizeof(tmp));
+    }
+
+    cnt = filesize % PACKETSIZE;
+    fin.seekg((i*PACKETSIZE), ios::beg);
+    fin.read(tmp, cnt);
+    send(sock_fd, tmp, cnt, 0);
+
+    //close the file
+    fin.close();
+
+    cout << "file shared successfully......." << endl;
+    close(sock_fd);
+}
 
 /*
     function : download(int Sock_fd, string filename)
@@ -144,27 +251,19 @@ void sharefile(int Sock_fd){
 */
 void download(int Sock_fd, string filename){
 
-    //send download request to the seeder(request = 1)
-    int request = 1;
-    send(Sock_fd, &request, sizeof(request), 0);
-
-    //send filename to the seeder
-    int datasize = filename.length();
-    send(Sock_fd, &datasize, sizeof(datasize), 0);
-    send(Sock_fd, filename.c_str(), datasize, 0);
+    cout << "downloading.............";
 
     //recieve the filesize
-    int filesize;
+    unsigned long long int filesize;
     recv(Sock_fd, &filesize, sizeof(filesize), 0);
-    cout << filename << endl;
-    cout << "filesize: " << filesize << endl;
-
+    
     //prepare the output file
     fstream fout;
     fout.open(filename.c_str(), ios::trunc | ios::out | ios::in);
 
+    
     //download file
-    int cnt = filesize/PACKETSIZE, i;
+    unsigned long long int cnt = filesize/PACKETSIZE, i;
     char tmp[10] = {0};
     for(i=0; i<cnt; i++){
         recv(Sock_fd, tmp, PACKETSIZE, 0);
@@ -176,8 +275,40 @@ void download(int Sock_fd, string filename){
     recv(Sock_fd, tmp, cnt, 0);
     fout.write(tmp, cnt);
     fout.close();                               //close the file
+
+    cout << "\ndownload completed......\n";
+    cout << "filename: " << filename << "; size: " << filesize << " bytes\n";
 }
 
+
+void recievefile(int Sock_fd){
+    int datasize; bool res;
+    char username[100], filename[100];
+    memset(username, 0, sizeof(username));
+    memset(filename, 0, sizeof(filename));
+
+    //recieve username and filename
+    recv(Sock_fd, &datasize, sizeof(datasize), 0);
+    recv(Sock_fd, username, datasize, 0);
+    recv(Sock_fd, &datasize, sizeof(datasize), 0);
+    recv(Sock_fd, filename, datasize, 0);
+
+    //ask user
+    fprintf(stdin, "%s", "n\n");
+    cout << "\n[>] " << username << " wants to share " << filename << " with you" << endl;
+    cout << "  do you agree ?(y / n): ";
+    char choice;
+    cin >> choice;
+    if(choice == 'n'){
+        res = false;
+        send(Sock_fd, &res, sizeof(res), 0);
+        return;
+    }
+
+    res = true;
+    send(Sock_fd, &res, sizeof(res), 0);
+    download(Sock_fd, (string)filename);
+}
 /*
     function : try_download(string filename)
     return: void
@@ -204,11 +335,14 @@ void try_download(string filename){
     int request = 2;
     send(Sock_fd, &request, sizeof(request), 0);
 
-    //send client ID
-    send(Sock_fd, &MyID, sizeof(MyID), 0);
+    //send username
+    int datasize = ClientUsername.length();
+    send(Sock_fd, &datasize, sizeof(datasize), 0);
+    send(Sock_fd, ClientUsername.c_str(), datasize, 0);
 
+    cout << "searching for file.......\n";
     //send filename
-    int datasize = filename.length();
+    datasize = filename.length();
     send(Sock_fd, &datasize, sizeof(datasize), 0);
     send(Sock_fd, filename.c_str(), datasize, 0);
 
@@ -221,6 +355,7 @@ void try_download(string filename){
         return;
     }
 
+    cout << "file found\n";
     //recieve seeder's ip and port no
     recv(Sock_fd, &datasize, sizeof(datasize), 0);
     char peerip[32]; int peerport;
@@ -242,9 +377,16 @@ void try_download(string filename){
     connect(Sock_fd, (struct sockaddr *)&peeraddr, sizeof(peeraddr));
 
     cout << "connected with: " << peerip << ":" << peerport << endl;
-    cout << "Downloading.......\n";
 
     //download the file
+    //send download request to the seeder(request = 1)
+    request = 1;
+    send(Sock_fd, &request, sizeof(request), 0);
+
+    //send filename to the seeder
+    datasize = filename.length();
+    send(Sock_fd, &datasize, sizeof(datasize), 0);
+    send(Sock_fd, filename.c_str(), datasize, 0);
     download(Sock_fd, filename); 
     close(Sock_fd);
 }
@@ -258,12 +400,25 @@ void try_download(string filename){
 */
 void user_interface(){
     while(true){
-        string filename;
-        //cin.ignore(numeric_limits<streamsize>::max(),'\n');
-        cout << "enter filename to download: ";
-        //cin.ignore(numeric_limits<streamsize>::max(),'\n');
-        cin >> filename;
-        try_download(filename);
+        string op, filename;
+        cout << "[>] what do you want to perform ? (share / download): ";
+        cin >> op;
+        if(op == "share"){
+            cout << "[>] enter filename to share : ";
+            cin >> filename;
+            string uname;
+            cout << "[>] enter username for sharing with : ";
+            cin >> uname;
+            sharefile_private(uname, filename);
+        }else if(op == "download"){
+            cout << "[>] enter filename to download : ";
+            cin >> filename;
+            try_download(filename);
+        }else if(op == "n"){
+            continue;
+        }else{
+            cout << "[-] Invalid choice. " << endl;
+        }
     }
 }
 
@@ -280,8 +435,14 @@ void handle_request(int Sock_fd, int requestid){
                break;
          
          case 1:                    //it is a client request to download a file
-               sharefile(Sock_fd);
+               sharefile_public(Sock_fd);
                break;
+               
+         case 2:
+               recievefile(Sock_fd);
+               break;
+         default:
+               cout << "Invalid request" << endl;
     }
 
     close(Sock_fd);
@@ -302,12 +463,12 @@ void RunClient(){
     }
 
     //fillup ClientAddress to bind
-    string myip = getip(); int myport;
+    string myip = "127.0.0.1"; int myport;
     cout << "Enter port number to listen: ";
     cin >> myport;
     ClientAddress.sin_family = AF_INET;
     ClientAddress.sin_addr.s_addr = inet_addr(myip.c_str());
-    ClientAddress.sin_port = htons(9001);
+    ClientAddress.sin_port = htons(myport);
     //bind
     if(bind(Client_Listen_Sockfd, (struct sockaddr *)&ClientAddress, sizeof(ClientAddress)) < 0){
         cout << "cannot bind\n";
@@ -337,28 +498,44 @@ void RunClient(){
     //send register request and store ID in MyID
     int requestid = 1;
     send(Client_Request_Sockfd, &requestid, sizeof(requestid), 0);
-    int datasize = myip.length();
+    cout << "Enter username for registration : ";
+    cin >> ClientUsername;
+    int datasize = ClientUsername.length();
+    send(Client_Request_Sockfd, &datasize, sizeof(datasize), 0);
+    send(Client_Request_Sockfd, ClientUsername.c_str(), datasize, 0);
+    datasize = myip.length();
     send(Client_Request_Sockfd, &datasize, sizeof(datasize), 0);
     send(Client_Request_Sockfd, myip.c_str(), datasize, 0);
     send(Client_Request_Sockfd, &myport, sizeof(myport), 0);
-    recv(Client_Request_Sockfd, &MyID, sizeof(MyID), 0);
+    //recv(Client_Request_Sockfd, &MyID, sizeof(MyID), 0);
+    bool res;
+    recv(Client_Request_Sockfd, &res, sizeof(res), 0);
     close(Client_Request_Sockfd);
-    cout << "connected with ID: " << MyID << endl;
+    //cout << "connected with ID: " << MyID << endl;
+    if(!res){
+        cout << "registration failed. try another username" << endl;
+        close(Client_Listen_Sockfd);
+        exit(1);
+    }
 
-    //start user interface
-    thread thr_UI(user_interface);
-    thr_UI.detach();
+    cout << "registration successful" << endl;
 
     //start listening
     if(listen(Client_Listen_Sockfd, 6) < 0){
         cout << "error in listening\n";
         exit(1);
     }
+    cout << "listening...." << endl;
+    //start user interface
+    thread thr_UI(user_interface);
+    thr_UI.detach();
+
 
     //start accepting requests
     int tmp_sockfd;
     struct sockaddr_in tmpaddress; socklen_t addrsize;
     while(true){
+        cout << "\nhere.." << endl;
         if((tmp_sockfd = accept(Client_Listen_Sockfd, (struct sockaddr *)&tmpaddress, &addrsize)) < 0){
             cout << "cannot accept request\n";
             exit(1);
