@@ -88,6 +88,43 @@ void searchfile(int Sock_fd){
 }
 
 
+void send_file_list(int Sock_fd){
+    
+    int datasize;
+
+    //open searching directory and start searching
+    struct dirent *d;
+    struct stat dst;
+    DIR *dir;
+    string path = "./shared/public/";
+    dir = opendir(path.c_str());
+    bool res = false;
+
+    if(dir == NULL){
+        send(Sock_fd, &res, sizeof(res), 0);
+        return;
+    }
+    
+    for(d = readdir(dir); d != NULL; d = readdir(dir)){
+        stat((path+(string)d->d_name).c_str(), &dst);
+            if(S_ISDIR(dst.st_mode)){
+                continue;
+            }
+
+        res = true;
+        send(Sock_fd, &res, sizeof(res), 0);
+        datasize = strlen(d->d_name);
+        send(Sock_fd, &datasize, sizeof(datasize), 0);
+        send(Sock_fd, d->d_name, datasize, 0);
+    }
+
+    res = false;
+    send(Sock_fd, &res, sizeof(res), 0);
+
+    closedir(dir);
+    
+}
+
 /*
     function : sharefile(int Sock_fd)
     return: void
@@ -392,6 +429,63 @@ void try_download(string filename){
 }
 
 
+void getfilelist(){
+
+    //connect to the server
+    int sock_fd;
+    if((sock_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        cout << "error occured while connecting to the server" << endl;
+        return;
+    }
+
+    if(connect(sock_fd, (struct sockaddr *)&ServerAddress, sizeof(ServerAddress)) < 0){
+        cout << "cannot connect to the server" << endl;
+        close(sock_fd);
+        return;
+    }
+
+    //send request
+    cout << "sending request......" << endl;
+    int req = 3, datasize;
+    send(sock_fd, &req, sizeof(req), 0);
+
+    //send username
+    datasize = ClientUsername.length();
+    send(sock_fd, &datasize, sizeof(datasize), 0);
+    send(sock_fd, ClientUsername.c_str(), datasize, 0);
+ 
+    cout << "fetching files list........." << endl;
+    bool next_user = false, next_file = false;
+    char seedername[100], filename[100];
+    recv(sock_fd, &next_user, sizeof(next_user), 0);
+    if(!next_user){
+        cout << "no file found.." << endl;
+        close(sock_fd);
+        return;
+    }
+
+    cout << "files available in the network publicly: " << endl << endl;;
+    while(next_user){
+
+        memset(seedername, 0, sizeof(seedername));
+        recv(sock_fd, &datasize, sizeof(datasize), 0);
+        recv(sock_fd, seedername, datasize, 0);
+
+        cout << "////////// seeder: " << seedername << " \\\\\\\\\\" << endl; 
+        for(recv(sock_fd, &next_file, sizeof(next_file), 0); next_file; recv(sock_fd, &next_file, sizeof(next_file), 0)){
+            recv(sock_fd, &datasize, sizeof(datasize), 0);
+            recv(sock_fd, filename, datasize, 0);
+            filename[datasize] = '\0';
+            cout << "  --" << filename << endl;
+        }
+
+        cout << endl;
+        recv(sock_fd, &next_user, sizeof(next_user), 0);
+    }
+
+    close(sock_fd);
+}
+
 /*
     function : user_interface()
     return: void
@@ -400,23 +494,28 @@ void try_download(string filename){
 */
 void user_interface(){
     while(true){
-        string op, filename;
-        cout << "[>] what do you want to perform ? (share / download): ";
+        int op;
+        string filename;
+        cout << "[>] what do you want to perform ?" << endl;
+        cout << "1) share\n" << "2) download\n" << "3) list files\n" << "4) refresh screen\n";
         cin >> op;
-        if(op == "share"){
+        if(op == 1){
             cout << "[>] enter filename to share : ";
             cin >> filename;
             string uname;
             cout << "[>] enter username for sharing with : ";
             cin >> uname;
             sharefile_private(uname, filename);
-        }else if(op == "download"){
+        }else if(op == 2){
             cout << "[>] enter filename to download : ";
             cin >> filename;
             try_download(filename);
-        }else if(op == "n"){
+        }else if(op == 3){
+            getfilelist();
+        }else if(op == 4){
             continue;
-        }else{
+        }
+        else{
             cout << "[-] Invalid choice. " << endl;
         }
     }
@@ -441,6 +540,11 @@ void handle_request(int Sock_fd, int requestid){
          case 2:
                recievefile(Sock_fd);
                break;
+
+         case 3:
+               send_file_list(Sock_fd);
+               break;
+               
          default:
                cout << "Invalid request" << endl;
     }
@@ -463,7 +567,9 @@ void RunClient(){
     }
 
     //fillup ClientAddress to bind
-    string myip = "127.0.0.1"; int myport;
+    string myip; int myport;
+    cout << "Enter ur ip: ";
+    cin >> myip;
     cout << "Enter port number to listen: ";
     cin >> myport;
     ClientAddress.sin_family = AF_INET;

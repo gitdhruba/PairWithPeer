@@ -50,31 +50,6 @@ std::string getip(){
     return s;
 }
 
-/*bool IsLive(std::string ip, int port){
-    int sock_fd;
-    int req = 2;
-    if((sock_fd = socket(AF_INET, SOCK_STREAM, 0) < 0)){
-        std::cout << "An unexpected error occured. quittng server....." << std::endl;
-        exit(1);
-    }
-
-    struct sockaddr_in clientaddr;
-    memset(&clientaddr ,0, sizeof(clientaddr));
-    std::cout << ip << ":" << port << std::endl;
-    clientaddr.sin_family = AF_INET;
-    clientaddr.sin_addr.s_addr = inet_addr(ip.c_str());
-    clientaddr.sin_port = htons(8000);
-
-    int res = connect(sock_fd, (struct sockaddr* )&clientaddr, sizeof(clientaddr));
-    if(res < 0){
-        std::cout << "not Live" << std::endl;
-        return false;
-    }
-
-    send(sock_fd, &req, sizeof(req), 0);
-    close(sock_fd);
-    return true;
-}*/
 
 /*
     function --> Register_Client(int Sock_fd)
@@ -161,65 +136,6 @@ bool Handle_Download_Request(int Sock_fd){
     recv(Sock_fd, Filename, datasize, 0);
 
     std::string username = (std::string)Username;
-    /*std::cout << "here\n";
-    //initiate a random starting point for searching
-    unsigned long int StartingIndex;
-    srand(time(NULL));
-    StartingIndex = rand();
-    StartingIndex = StartingIndex % ClientsList.size();
-
-    //start searching
-    for(unsigned long int Offset = 0; Offset < ClientsList.size(); Offset++){
-        unsigned long int Index = (StartingIndex + Offset) % ClientsList.size();
-        std::cout << Index << std::endl;
-        if(Index != ClientID){                                                  //don't search in same client
-            //fill-up Client_Address for connecting
-            Client_Address.sin_family = AF_INET;
-            Client_Address.sin_addr.s_addr = inet_addr(ClientsList[Index].first.c_str());
-            Client_Address.sin_port = htons(ClientsList[Index].second);
-       
-            std::cout << "checking: " << ClientsList[Index].first << ":" << ClientsList[Index].second << std::endl;
-            //create temporary socket for searching 
-            if((Temp_Sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-                  continue;
-            }
-            //connect
-            if(connect(Temp_Sockfd, (struct sockaddr *)&Client_Address, sizeof(Client_Address)) < 0){
-                  continue;
-            }
-            
-            //send request
-            int request = 0;
-            send(Temp_Sockfd, &request, sizeof(request), 0);
-            //send filename
-            datasize = strlen(Filename);
-            send(Temp_Sockfd, &datasize, sizeof(datasize), 0);
-            send(Temp_Sockfd, Filename, datasize, 0);
-
-            //get response
-            recv(Temp_Sockfd, &Response, sizeof(Response), 0);
-            std::cout << "response: " << Response << std::endl;
-            if(Response){                                               //file is present
-                //forward response to the client
-                send(Sock_fd, &Response, sizeof(Response), 0);
-
-                //send ip and port no of the seeding client
-                datasize = ClientsList[Index].first.length();
-                send(Sock_fd, &datasize, sizeof(datasize), 0);
-                send(Sock_fd, ClientsList[Index].first.c_str(), datasize, 0);
-                send(Sock_fd, &ClientsList[Index].second, sizeof(ClientsList[Index].second), 0);
-
-                //all done. no need to check further
-                close(Temp_Sockfd);
-                return true;
-            }
-
-            close(Temp_Sockfd);
-        }
-    }
-    
-    return false;*/
-
     std::map<std::string, std::pair<std::string, int>> :: iterator it;
     it = ClientsList.find(username);
     it++;
@@ -275,15 +191,68 @@ bool Handle_Download_Request(int Sock_fd){
 
 void Handle_List_Request(int Sock_fd){
     int datasize = 0;
-    int Temp_Sockfd;
-    unsigned long int ClientID;
-    std::vector<std::string> FileList;
-
-    //recieve client's ID
-    recv(Sock_fd, &ClientID, sizeof(ClientID), 0);
-
+    int temp_sockfd;
+    bool next_user, next_file;
+    char username[100], filename[100];
+    struct sockaddr_in seeder_addr;
+    memset(username, 0, sizeof(username));
     
+    //get username
+    recv(Sock_fd, &datasize, sizeof(datasize), 0);
+    recv(Sock_fd, username, datasize, 0);
+
+    std::map<std::string, std::pair<std::string, int>> :: iterator itr;
+    for(itr = ClientsList.begin(); itr != ClientsList.end(); itr++, next_user = false){
+
+        if(itr->first == (std::string)username){
+            continue;
+        }
+
+        memset(&seeder_addr, 0, sizeof(seeder_addr));
+        if((temp_sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+            next_user = false;
+            send(Sock_fd, &next_user, sizeof(next_user), 0);
+            std::cout << "an unexpexted error occured.." << std::endl;
+            return;
+        }
+
+        seeder_addr.sin_family = AF_INET;
+        seeder_addr.sin_addr.s_addr = inet_addr((itr->second.first).c_str());
+        seeder_addr.sin_port = htons(itr->second.second);
+
+        if(connect(temp_sockfd, (struct sockaddr *)&seeder_addr, sizeof(seeder_addr)) < 0){
+            next_user = false;
+            send(Sock_fd, &next_user, sizeof(next_user), 0);
+            std::cout << "an unexpexted error occured.." << std::endl;
+            return;
+        }
+
+        next_user = true;
+        send(Sock_fd, &next_user, sizeof(next_user), 0);
+
+        datasize = itr->first.size();
+        send(Sock_fd, &datasize, sizeof(datasize), 0);
+        send(Sock_fd, (itr->first).c_str(), datasize, 0);
+        
+        int req = 3;
+        send(temp_sockfd, &req, sizeof(req), 0);
+        datasize = 100;
+        for(recv(temp_sockfd, &next_file, sizeof(next_file), 0); next_file; recv(temp_sockfd, &next_file, sizeof(next_file), 0)){
+            memset(filename, 0, datasize);
+            recv(temp_sockfd, &datasize, sizeof(datasize), 0);
+            recv(temp_sockfd, filename, datasize, 0);
+            send(Sock_fd, &next_file, sizeof(next_file), 0);
+            send(Sock_fd, &datasize, sizeof(datasize), 0);
+            send(Sock_fd, filename, datasize, 0);
+        }
+
+        send(Sock_fd, &next_file, sizeof(next_file), 0);
+        close(temp_sockfd);
+    }
+
+    send(Sock_fd, &next_user, sizeof(next_user), 0);
 }
+
 
 void Provide_UserInfo(int Sock_fd){
     int datasize;
@@ -331,9 +300,9 @@ void Handle_Client_Request(int Sock_fd, int RequestID){
               }
               break;
 
-        /*case 3:
+        case 3:
                Handle_List_Request(Sock_fd);
-               break;*/
+               break;
         
          case 4:
                Provide_UserInfo(Sock_fd);
@@ -365,7 +334,7 @@ void RunServer(){
     }
 
     //fill-up Server_Address for binding
-    std::string ipaddr = "127.0.0.1";
+    std::string ipaddr = getip();
     Server_Address.sin_family = AF_INET;
     Server_Address.sin_port = htons(PORT);
     Server_Address.sin_addr.s_addr = inet_addr(ipaddr.c_str());
