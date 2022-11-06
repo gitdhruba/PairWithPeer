@@ -12,6 +12,9 @@
 #include <thread>
 #include <cstdlib>
 #include <time.h>
+#include<string.h>
+#include<cstring>
+#include<iostream>
 
 
 /***************headers end********************/
@@ -23,7 +26,7 @@ using namespace std;
 #define PACKETSIZE 8              //data will be sent/recieved in a series of packets of size PACKETSIZE
 
 //declare some global variables
-string ClientUsername;                         //MyID holdes Client's ID after connecting to the network
+std:: string ClientUsername;                         //MyID holdes Client's ID after connecting to the network
 struct sockaddr_in ServerAddress;               //ServerAddress holds Server's socket address
 
 
@@ -35,13 +38,13 @@ struct sockaddr_in ServerAddress;               //ServerAddress holds Server's s
     function --> getip()
     return: the public ip as a string
 */
-string getip(){
+std:: string getip(){
     FILE *f = popen("ip a | grep 'scope global' | grep -v ':' | awk '{print $2}' | cut -d '/' -f1", "r");
-    char c; string s = "";
+    char c; std:: string s = "";
     while ((c = getc(f)) != EOF) 
          s += c;
     pclose(f);
-    cout << s << endl;
+    std::cout << s << std:: endl;
     return s;
 }
 
@@ -49,7 +52,7 @@ string getip(){
     function : searchfile(int Sock_fd)
     return: void
     description:
-       - this function is called when server asks for if a file is present or not. this function recieves
+       - this funct.seion is called when server asks for if a file is present or not. this function recieves
          the filename from the server and searches in its current directory. if it is present , function 
          sends response as true, otherwise false.
 */
@@ -66,12 +69,12 @@ void searchfile(int Sock_fd){
     struct dirent *d;
     struct stat dst;
     DIR *dir;
-    string path = "./shared/public/";
+    std:: string path = "./shared/public/";
     dir = opendir(path.c_str());
     bool res = false;
     if(dir != NULL){
         for(d = readdir(dir); d != NULL; d = readdir(dir)){
-            stat((path+(string)d->d_name).c_str(), &dst);
+            stat((path+(std:: string)d->d_name).c_str(), &dst);
             if(S_ISDIR(dst.st_mode)){
                 continue;
             }
@@ -96,7 +99,7 @@ void send_file_list(int Sock_fd){
     struct dirent *d;
     struct stat dst;
     DIR *dir;
-    string path = "./shared/public/";
+    std:: string path = "./shared/public/";
     dir = opendir(path.c_str());
     bool res = false;
 
@@ -106,7 +109,7 @@ void send_file_list(int Sock_fd){
     }
     
     for(d = readdir(dir); d != NULL; d = readdir(dir)){
-        stat((path+(string)d->d_name).c_str(), &dst);
+        stat((path+(std:: string)d->d_name).c_str(), &dst);
             if(S_ISDIR(dst.st_mode)){
                 continue;
             }
@@ -143,9 +146,9 @@ void sharefile_public(int Sock_fd){
     //cout << filename << " requested\n";
 
     //open and prepare the requested file
-    fstream fin;
-    string pathtofile = "./shared/public/" + (string)filename;
-    fin.open(pathtofile, ios::out | ios::in);
+    std:: fstream fin;
+    std:: string pathtofile = "./shared/public/" + (string)filename;
+    fin.open(pathtofile, std:: ios::out | std::ios::in);
     
     //calculate file size
     fin.seekg(0, ios::beg);
@@ -275,7 +278,7 @@ void sharefile_private(string username, string filename){
     //close the file
     fin.close();
 
-    cout << "file shared successfully......." << endl;
+    cout << "file shared successfully......." <<     endl;
     close(sock_fd);
 }
 
@@ -353,7 +356,7 @@ void recievefile(int Sock_fd){
         - this function sends a request to the server to download a file. if server returns a response true, 
           then it fetches the seeder ip and port no, then connect with that and then calls the download()
           function.
-*/
+*/    
 void try_download(string filename){
 
     //create a socket to communicate with the server
@@ -413,7 +416,7 @@ void try_download(string filename){
     }
     connect(Sock_fd, (struct sockaddr *)&peeraddr, sizeof(peeraddr));
 
-    cout << "connected with: " << peerip << ":" << peerport << endl;
+    cout << "connected with: " << peerip << ":"     << peerport << endl;
 
     //download the file
     //send download request to the seeder(request = 1)
@@ -422,7 +425,7 @@ void try_download(string filename){
 
     //send filename to the seeder
     datasize = filename.length();
-    send(Sock_fd, &datasize, sizeof(datasize), 0);
+    send(Sock_fd, &datasize, sizeof(datasize), 0    );
     send(Sock_fd, filename.c_str(), datasize, 0);
     download(Sock_fd, filename); 
     close(Sock_fd);
@@ -450,7 +453,7 @@ void getfilelist(){
     send(sock_fd, &req, sizeof(req), 0);
 
     //send username
-    datasize = ClientUsername.length();
+    datasize = ClientUsername.length();    
     send(sock_fd, &datasize, sizeof(datasize), 0);
     send(sock_fd, ClientUsername.c_str(), datasize, 0);
  
@@ -475,7 +478,7 @@ void getfilelist(){
         for(recv(sock_fd, &next_file, sizeof(next_file), 0); next_file; recv(sock_fd, &next_file, sizeof(next_file), 0)){
             recv(sock_fd, &datasize, sizeof(datasize), 0);
             recv(sock_fd, filename, datasize, 0);
-            filename[datasize] = '\0';
+            filename[datasize] = '\0';    
             cout << "  --" << filename << endl;
         }
 
@@ -520,7 +523,7 @@ void user_interface(){
         }
     }
 }
-
+    
 /*
     function : handle_request(int Sock_fd, int requestid)
     return: void
@@ -574,7 +577,7 @@ void RunClient(){
     cin >> myport;
     ClientAddress.sin_family = AF_INET;
     ClientAddress.sin_addr.s_addr = inet_addr(myip.c_str());
-    ClientAddress.sin_port = htons(myport);
+    ClientAddress.sin_port = htons(myport);    
     //bind
     if(bind(Client_Listen_Sockfd, (struct sockaddr *)&ClientAddress, sizeof(ClientAddress)) < 0){
         cout << "cannot bind\n";

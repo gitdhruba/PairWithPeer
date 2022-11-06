@@ -24,18 +24,17 @@
 
 
 //define some global values
-#define PORT 8080           //the server will be listening to PORT
+#define PORT 8080        //the server will be listening to PORT
 #define PACKETSIZE 8        //data will be sent/recieved in a series of packets of size PACKETSIZE
 
 //declare some global variables
 std::map<std::string, std::pair<std::string, int>> ClientsList;           //stores ip address and port numbers for each connected clients
 //std::map<std::pair<std::string, int>, std::string> AddrTable;
-std::mutex mtx;                                          //for handeling critical sections
+std::mutex mtx;                                       //for handeling critical sections
 
 
 
 /****************************handler functions****************************/
-
 /*
     function --> getip()
     return: the public ip as a string
