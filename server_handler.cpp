@@ -5,7 +5,7 @@
 // #include <map>
 // //#include <stdlib.h>
 // #include <cstring>
-#include <bits/stdc++.h>
+//#include <bits/stdc++.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -19,6 +19,10 @@
 #include <mutex>
 #include <cstdlib>
 #include <time.h>
+#include<string.h>
+#include<cstring>
+#include<iostream>
+#include<map>
 
 /***************headers end********************/
 
