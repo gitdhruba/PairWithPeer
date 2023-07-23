@@ -1,10 +1,10 @@
 /***************headers start******************/
-#include "client_handler.cpp"
+#include "defs.hpp"
 
 /***************headers end********************/
 
-//main entry point to the client
+//main entry point to the server
 int main(){
-    RunClient();
+    RunServer();
     return 0;
 }

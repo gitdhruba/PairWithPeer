@@ -1,57 +1,12 @@
-/***************headers start******************/
-// #include <iostream>
-// #include <vector>
-// #include <string>
-// #include <map>
-// //#include <stdlib.h>
-// #include <cstring>
-//#include <bits/stdc++.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/stat.h>
-#include <dirent.h>
-#include <fstream>
-#include <netdb.h>
-#include <unistd.h>
-#include <thread>
-#include <mutex>
-#include <cstdlib>
-#include <time.h>
-#include<string.h>
-#include<cstring>
-#include<iostream>
-#include<map>
+#include "defs.hpp"
 
-/***************headers end********************/
-
-
-//define some global values
-#define PORT 8080        //the server will be listening to PORT
-#define PACKETSIZE 8        //data will be sent/recieved in a series of packets of size PACKETSIZE
 
 //declare some global variables
 std::map<std::string, std::pair<std::string, int>> ClientsList;           //stores ip address and port numbers for each connected clients
-//std::map<std::pair<std::string, int>, std::string> AddrTable;
 std::mutex mtx;                                       //for handeling critical sections
 
 
-
 /****************************handler functions****************************/
-/*
-    function --> getip()
-    return: the public ip as a string
-*/
-std::string getip(){
-    FILE *f = popen("ip a | grep 'scope global' | grep -v ':' | awk '{print $2}' | cut -d '/' -f1", "r");
-    char c; std::string s = "";
-    while ((c = getc(f)) != EOF) 
-         s += c;
-    pclose(f);
-    std::cout << s << std::endl;
-    return s;
-}
 
 
 /*
@@ -192,24 +147,29 @@ bool Handle_Download_Request(int Sock_fd){
 }
 
 
+/*
+    function --> Handle_List_Request(int Sock_fd)
+    description:
+         param-1: Sock_fd = new client socket file-descriptor
+      - sends list of all files shared publicly in the network
+*/
 void Handle_List_Request(int Sock_fd){
     int datasize = 0;
     int temp_sockfd;
     bool next_user, next_file;
-    char username[100], filename[100];
+    char filename[100];
     struct sockaddr_in seeder_addr;
-    memset(username, 0, sizeof(username));
     
     //get username
-    recv(Sock_fd, &datasize, sizeof(datasize), 0);
-    recv(Sock_fd, username, datasize, 0);
+    // recv(Sock_fd, &datasize, sizeof(datasize), 0);
+    // recv(Sock_fd, username, datasize, 0);
 
     std::map<std::string, std::pair<std::string, int>> :: iterator itr;
     for(itr = ClientsList.begin(); itr != ClientsList.end(); itr++, next_user = false){
 
-        if(itr->first == (std::string)username){
-            continue;
-        }
+        // if(itr->first == (std::string)username){
+        //     continue;
+        // }
 
         memset(&seeder_addr, 0, sizeof(seeder_addr));
         if((temp_sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
@@ -257,6 +217,12 @@ void Handle_List_Request(int Sock_fd){
 }
 
 
+/*
+    function --> Provide_UserInfo(int Sock_fd)
+    description:
+         param-1: Sock_fd = new client socket file-descriptor
+      - provides socket address of the resquested user
+*/
 void Provide_UserInfo(int Sock_fd){
     int datasize;
     char username[100];
@@ -280,95 +246,4 @@ void Provide_UserInfo(int Sock_fd){
     send(Sock_fd, &datasize, sizeof(datasize), 0);
     send(Sock_fd, ip.c_str(), datasize, 0);
     send(Sock_fd, &port, sizeof(port), 0);
-}
-
-/*
-    function --> Handle_Client_Request(int Sock_fd, int RequestID)
-    return: void
-    description:
-         param-1: Sock_fd = new client socket file-descriptor
-         param-2: RequestID = 1 -> new connection request
-                  RequestID = 2 -> request to download a file
-*/
-void Handle_Client_Request(int Sock_fd, int RequestID){
-    switch(RequestID){
-        case 1:             //new connection request
-              Register_Client(Sock_fd);
-              break;
-
-        case 2:             //request to download a file
-              if(!Handle_Download_Request(Sock_fd)){
-                 bool status = false;
-                 send(Sock_fd, &status, sizeof(status), 0);
-              }
-              break;
-
-        case 3:
-               Handle_List_Request(Sock_fd);
-               break;
-        
-         case 4:
-               Provide_UserInfo(Sock_fd);
-               break;
-
-        default:
-              std::cout << "Invalid request\n";
-    }
-
-    //close socket
-    close(Sock_fd);
-    return;
-}
-
-
-
-/*driver code for the server*/
-void RunServer(){
-    int Server_Sockfd, New_Client_Sockfd;
-    struct sockaddr_in Server_Address, New_Client_Address;
-    socklen_t addr_size;
-
-    memset(&Server_Address, 0, sizeof(Server_Address));     //clear Server_Address
-
-    //create socket
-    if((Server_Sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        std::cout << "server socket could not be created\n";
-        exit(1);
-    }
-
-    //fill-up Server_Address for binding
-    std::string ipaddr = getip();
-    Server_Address.sin_family = AF_INET;
-    Server_Address.sin_port = htons(PORT);
-    Server_Address.sin_addr.s_addr = inet_addr(ipaddr.c_str());
-
-    //bind
-    if(bind(Server_Sockfd, (struct sockaddr *)&Server_Address, sizeof(Server_Address)) < 0){
-        std::cout << "cannot bind\n";
-        exit(1);
-    }
-
-    //start listening
-    if(listen(Server_Sockfd, 6) < 0){
-        std::cout << "cannot listen\n";
-        exit(1);
-    }
-    std::cout << "Listening to " << ipaddr << ": " << PORT << std::endl;
-    //accept requests from clients and make separate threads to handle them
-    while(true){
-        if((New_Client_Sockfd = accept(Server_Sockfd, (struct sockaddr *)&New_Client_Address, &addr_size)) < 0){
-            std::cout << "client connection could not be established\n";
-            exit(1);
-        }
-
-        int RequestID;
-        recv(New_Client_Sockfd, &RequestID, sizeof(RequestID), 0);
-        std::cout << RequestID << std::endl;
-        //create thread to handle request
-        std::thread thr(Handle_Client_Request, New_Client_Sockfd, RequestID);
-        thr.detach();
-    }
-
-    return;
-
 }
